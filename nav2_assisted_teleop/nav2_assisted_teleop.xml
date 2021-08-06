@@ -1,0 +1,9 @@
+<class_libraries>
+    <library path="nav2_assisted_teleop">
+        <class type="nav2_assisted_teleop::PurePursuitController" base_class_type="nav2_core::Controller">
+            <description>
+                nav2_assisted_teleop
+            </description>
+        </class>
+    </library>
+</class_libraries>
