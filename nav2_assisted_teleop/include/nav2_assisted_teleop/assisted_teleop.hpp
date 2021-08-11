@@ -1,11 +1,30 @@
+/*
+ *  Copyright (c) 2008.
+ *  All rights reserved.
+ *
+ *  This library is free software; you can redistribute it and/or
+ *  modify it under the terms of the GNU Lesser General Public
+ *  License as published by the Free Software Foundation; either
+ *  version 2.1 of the License, or (at your option) any later version.
+ *
+ *  This library is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ *  Lesser General Public License for more details.
+ *
+ *  You should have received a copy of the GNU Lesser General Public
+ *  License along with this library; if not, write to the Free Software
+ *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ */
+
+/* Author: Anushree Sabnis */
+
 #ifndef NAV2_ASSISTED_TELEOP__ASSISTED_TELEOP_HPP_
 #define NAV2_ASSISTED_TELEOP__ASSISTED_TELEOP_HPP_
 
 #include <memory>
 #include <string>
-#include <vector>
-#include <queue>
-
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp/time.hpp"
 #include "tf2_ros/buffer.h"
@@ -15,7 +34,6 @@
 #include "geometry_msgs/msg/polygon_stamped.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav2_util/robot_utils.hpp"
-#include "tf2_ros/transform_listener.h"
 #include "tf2_ros/transform_broadcaster.h"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "nav2_util/node_thread.hpp"
@@ -87,20 +105,13 @@ protected:
      */
 
 
+
     /**
      * @brief Initialize required ROS transformations
      */
     void initTransforms();
-    
     void timer_callback();
-
-   
-
     void subscriptionListenerThreadLoop();
-
-
 };
-
 }  // end namespace nav2_assisted_teleop
-
 #endif  // NAV2_ASSISTED_TELEOP__ASSISTED_TELEOP_HPP_
