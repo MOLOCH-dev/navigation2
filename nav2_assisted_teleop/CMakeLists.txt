@@ -11,6 +11,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 nav2_package()
 
@@ -29,20 +30,38 @@ set(dependencies
   tf2
 )
 
-add_library(nav2_assisted_teleop SHARED
+add_library(nav2_assisted_teleop_core SHARED
         src/assisted_teleop.cpp)
 
+add_executable(nav2_assisted_teleop src/main.cpp)
+
 # prevent pluginlib from using boost
-target_compile_definitions(nav2_assisted_teleop PUBLIC "PLUGINLIB__DISABLE_BOOST_FUNCTIONS")
+# target_compile_definitions(nav2_assisted_teleop PUBLIC "PLUGINLIB__DISABLE_BOOST_FUNCTIONS")
+
+ament_target_dependencies(nav2_assisted_teleop_core
+  ${dependencies}
+)
+
 
 ament_target_dependencies(nav2_assisted_teleop
   ${dependencies}
 )
 
-install(TARGETS nav2_assisted_teleop
+target_link_libraries(nav2_assisted_teleop
+  nav2_assisted_teleop_core
+)
+
+
+
+install(TARGETS nav2_assisted_teleop_core
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
+)
+
+install(TARGETS
+nav2_assisted_teleop 
+RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
 install(DIRECTORY include/
@@ -57,7 +76,7 @@ if(BUILD_TESTING)
 endif()
 
 ament_export_include_directories(include)
-ament_export_libraries(nav2_assisted_teleop)
+ament_export_libraries(nav2_assisted_teleop_core)
 ament_export_dependencies(${dependencies})
 
 pluginlib_export_plugin_description_file(nav2_core nav2_assisted_teleop.xml)

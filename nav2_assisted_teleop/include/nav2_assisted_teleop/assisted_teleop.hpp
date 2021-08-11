@@ -1,61 +1,106 @@
-/*
- * SPDX-License-Identifier: BSD-3-Clause
- *
- *  Author(s): Shrijit Singh <shrijitsingh99@gmail.com>
- *
- */
+#ifndef NAV2_ASSISTED_TELEOP__ASSISTED_TELEOP_HPP_
+#define NAV2_ASSISTED_TELEOP__ASSISTED_TELEOP_HPP_
 
-#ifndef NAV2_ASSISTED_TELEOP__NAV2_ASSISTED_TELEOP_HPP_
-#define NAV2_ASSISTED_TELEOP__NAV2_ASSISTED_TELEOP_HPP_
-
+#include <memory>
 #include <string>
 #include <vector>
-#include <memory>
+#include <queue>
 
-#include "nav2_core/controller.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "pluginlib/class_loader.hpp"
-#include "pluginlib/class_list_macros.hpp"
+#include "rclcpp/time.hpp"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
+#include "tf2_ros/create_timer_ros.h"
+#include "tf2_sensor_msgs/tf2_sensor_msgs.h"
+#include "geometry_msgs/msg/polygon_stamped.hpp"
+#include "geometry_msgs/msg/twist.hpp"
+#include "nav2_util/robot_utils.hpp"
+#include "tf2_ros/transform_listener.h"
+#include "tf2_ros/transform_broadcaster.h"
+#include "geometry_msgs/msg/pose_stamped.hpp"
+#include "nav2_util/node_thread.hpp"
+#include "nav2_util/lifecycle_node.hpp"
+
 
 namespace nav2_assisted_teleop
 {
-  class AssistedTeleopController : public nav2_core::Controller
-  {
-    public:
+class AssistedTeleop : public nav2_util::LifecycleNode
+{
+public:
+    /**
+     * @brief A constructor for nav2_assisted_teleop::AssistedTeleop class
+     */
+    AssistedTeleop();
+    /**
+     * @brief A destructor fornav2_assisted_teleop::AssistedTeleop class
+     */
+    ~AssistedTeleop();
 
-      AssistedTeleopController () = default;
+    /**
+     * @brief Configures member variables
+     *
+     * Initializes action server for "follow_waypoints"
+     * @param state Reference to LifeCycle node state
+     * @return SUCCESS or FAILURE
+     */
+    nav2_util::CallbackReturn on_configure(const rclcpp_lifecycle::State & state) override;
+    /**
+     * @brief Activates action server
+     * @param state Reference to LifeCycle node state
+     * @return SUCCESS or FAILURE
+     */
+    nav2_util::CallbackReturn on_activate(const rclcpp_lifecycle::State & state) override;
+    /**
+     * @brief Deactivates action server
+     * @param state Reference to LifeCycle node state
+     * @return SUCCESS or FAILURE
+     */
+    nav2_util::CallbackReturn on_deactivate(const rclcpp_lifecycle::State & state) override;
+    /**
+     * @brief Resets member variables
+     * @param state Reference to LifeCycle node state
+     * @return SUCCESS or FAILURE
+     */
+    nav2_util::CallbackReturn on_cleanup(const rclcpp_lifecycle::State & state) override;
+    /**
+     * @brief Called when in shutdown state
+     * @param state Reference to LifeCycle node state
+     * @return SUCCESS or FAILURE
+     */
+    nav2_util::CallbackReturn on_shutdown(const rclcpp_lifecycle::State & state) override;
 
-      ~AssistedTeleopController() override = default;
+    /**
+       * @brief Get the pose of the robot in the global frame of the costmap
+       * @param global_pose Will be set to the pose of the robot in the global frame of the costmap
+       * @return True if the pose was set successfully, false otherwise
+       */
+    // bool getRobotPose(geometry_msgs::msg::PoseStamped & global_pose);
+    // /**
+    // The Logger object for logging
+    rclcpp::Logger logger_{rclcpp::get_logger("nav2_assisted_teleop")};
 
-      void configure(
-      const rclcpp_lifecycle::LifecycleNode::SharedPtr & parent,
-      std::string name, const std::shared_ptr<tf2_ros::Buffer> & tf,
-      const std::shared_ptr<nav2_costmap_2d::Costmap2DROS> & costmap_ros) override;
-      
-      void cleanup() override;
-
-      void activate() override;
-
-      void deactivate() override;
-
-
-    geometry_msgs::msg::TwistStamped computeVelocityCommands(
-      const geometry_msgs::msg::PoseStamped & pose,
-      const geometry_msgs::msg::Twist & velocity) override;
-
-
-    void setPlan(const nav_msgs::msg::Path & path) override;
-
-    protected :
-    std::shared_ptr<tf2_ros::Buffer> tf_;
-    std::string plugin_name_;
-    std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros_;
-    nav2_costmap_2d::Costmap2D * costmap_;
-    rclcpp::Logger logger_ {rclcpp::get_logger("AssistedTeleopController")};
-    nav_msgs::msg::Path global_plan_;
+protected:
+    // The local node
+    rclcpp::Node::SharedPtr rclcpp_node_;
+    /**
+     * @brief Get parameters for node
+     */
 
 
-  };
-}  // namespace nav2_assisted_teleop
+    /**
+     * @brief Initialize required ROS transformations
+     */
+    void initTransforms();
+    
+    void timer_callback();
 
-#endif  // NAV2_ASSISTED_TELEOP__NAV2_ASSISTED_TELEOP_HPP_
+   
+
+    void subscriptionListenerThreadLoop();
+
+
+};
+
+}  // end namespace nav2_assisted_teleop
+
+#endif  // NAV2_ASSISTED_TELEOP__ASSISTED_TELEOP_HPP_
