@@ -56,6 +56,18 @@ ament_target_dependencies(nav2_spin_recovery
 # prevent pluginlib from using boost
 target_compile_definitions(nav2_spin_recovery PUBLIC "PLUGINLIB__DISABLE_BOOST_FUNCTIONS")
 
+# plugins
+add_library(nav2_assisted_teleop_recovery SHARED
+  plugins/assisted_teleop.cpp
+)
+
+ament_target_dependencies(nav2_assisted_teleop_recovery
+  ${dependencies}
+)
+
+# prevent pluginlib from using boost
+target_compile_definitions(nav2_assisted_teleop_recovery PUBLIC "PLUGINLIB__DISABLE_BOOST_FUNCTIONS")
+
 add_library(nav2_backup_recovery SHARED
   plugins/back_up.cpp
 )
@@ -108,6 +120,7 @@ install(TARGETS ${library_name}
                 nav2_backup_recovery
                 nav2_spin_recovery
                 nav2_wait_recovery
+                nav2_assisted_teleop_recovery
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
@@ -137,6 +150,7 @@ ament_export_libraries(${library_name}
   nav2_backup_recovery
   nav2_spin_recovery
   nav2_wait_recovery
+  nav2_assisted_teleop_recovery
 )
 
 ament_package()
