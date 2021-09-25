@@ -88,8 +88,6 @@ protected:
   double speed_y = 0.0;
   double angular_vel_ = 0;
   double projection_time = 1.0;
-  double num_samples_ = 10;
-  int loopcount = 1;
 
   geometry_msgs::msg::PoseStamped current_pose;
   geometry_msgs::msg::Pose2D projected_pose;

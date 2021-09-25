@@ -110,21 +110,22 @@ AssistedTeleop::vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
 bool
 AssistedTeleop::checkCollision()
 {
+  int loopcount = 1;
   const double dt = costmap_ros_->getResolution() / speed_x;
-
-  while (loopcount * dt < projection_time) {
+  
+  while (true) {
     col_time = loopcount * dt;
-    projectPose(speed_x, speed_y, angular_vel_, col_time);
-
-    if (col_time <= projection_time) {
-      if (!collision_checker_->isCollisionFree(projected_pose)) {
-        return false;
-      }
+    if (col_time > projection_time) {
+      break;
     }
     loopcount++;
+    projectPose(speed_x, speed_y, angular_vel_, col_time);
 
-    if (col_time > projection_time) {
-      return true;
+    if (col_time != 0) {
+      if (!collision_checker_->isCollisionFree(projected_pose)) {
+        RCLCPP_INFO(logger_,"Not col free ");
+        return false;
+      }
     }
   }
   return true;
@@ -136,12 +137,12 @@ AssistedTeleop::moveRobot()
   auto cmd_vel = std::make_unique<geometry_msgs::msg::Twist>();
   double mag = sqrt(
     cmd_vel_->linear.x * cmd_vel_->linear.x +
-    cmd_vel_->linear.y * cmd_vel_->linear.y +
+    /*cmd_vel_->linear.y * cmd_vel_->linear.y +*/
     cmd_vel_->angular.z * cmd_vel_->angular.z);
 
   if (mag != 0.0) {
     cmd_vel->linear.x = cmd_vel_->linear.x / (col_time * mag);
-    cmd_vel->linear.y = cmd_vel_->linear.y / (col_time * mag);
+    cmd_vel->linear.y = cmd_vel_->linear.y; // / (col_time * mag);
     cmd_vel->angular.z = cmd_vel_->angular.z / (col_time * mag);
   }
 
