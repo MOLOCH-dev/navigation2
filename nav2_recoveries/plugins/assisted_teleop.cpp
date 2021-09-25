@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Samsung Research America
+// Copyright (c) 2021 Anushree Sabnis
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,9 +15,11 @@
 #include <cmath>
 #include <chrono>
 #include <memory>
+#include <utility>
 
 #include "assisted_teleop.hpp"
- 
+#include "nav2_util/node_utils.hpp"
+
 namespace nav2_recoveries
 {
 
@@ -39,47 +41,19 @@ Status AssistedTeleop::onRun(const std::shared_ptr<const AssistedTeleopAction::G
     rclcpp::Duration(command->time).to_chrono<std::chrono::nanoseconds>();
 
   vel_sub_ = node->create_subscription<geometry_msgs::msg::Twist>(
-    vel_topic_, rclcpp::SystemDefaultsQoS(),
-    std::bind(&AssistedTeleop::vel_callback,
+    "cmd_vel", rclcpp::SystemDefaultsQoS(),
+    std::bind(
+      &AssistedTeleop::vel_callback,
       this, std::placeholders::_1));
-  // projection_time_ = costmap_->getResolution();
 
-
-
-  
+  costmap_sub_ = std::make_unique<nav2_costmap_2d::CostmapSubscriber>(
+    node_, "local_costmap/costmap_raw");
 
   return Status::SUCCEEDED;
 }
 
-Status AssistedTeleop::onCycleUpdate()
-{
-  auto current_point = std::chrono::steady_clock::now();
-  auto time_left =
-    std::chrono::duration_cast<std::chrono::nanoseconds>(assisted_teleop_end_ - current_point).count();
-
-  feedback_->time_left = rclcpp::Duration(rclcpp::Duration::from_nanoseconds(time_left));
-  action_server_->publish_feedback(feedback_);
-
-  if (time_left > 0) { 
-    if (speed_ != 0 || angular_vel_ != 0)
-    {
-      if (updatePose())
-      {
-        projectPose(speed_, angular_vel_);
-        RCLCPP_INFO(logger_,"Col check : %d", checkCollision());
-        RCLCPP_WARN(logger_,"Time to col : %.2f", col_time);
-        moveRobot();
-      }
-    }
-    return Status::RUNNING;
-  } 
-  else {
-    return Status::SUCCEEDED;
-  }
-
-}
-
-bool AssistedTeleop::updatePose()
+bool
+AssistedTeleop::updatePose()
 {
   if (!nav2_util::getCurrentPose(
       current_pose, *tf_, global_frame_, robot_base_frame_,
@@ -97,74 +71,88 @@ bool AssistedTeleop::updatePose()
   return true;
 }
 
-void AssistedTeleop::projectPose(double speed_, double angular_vel_) 
+void
+AssistedTeleop::projectPose(
+  double speed_x, double speed_y,
+  double angular_vel_, double projection_time)
 {
   // Project Pose
-  projected_pose.x += projection_time * (speed_ * (cos(projected_pose.theta)));
-  projected_pose.y += projection_time * (speed_ * (sin(projected_pose.theta)));
-  projected_pose.theta += projection_time * angular_vel_;
-
+  projected_pose.x += projection_time * (
+    speed_x * cos(projected_pose.theta));
+  projected_pose.y += projection_time * (
+    speed_y * sin(projected_pose.theta));
+  projected_pose.theta += projection_time *
+    angular_vel_;
 }
 
-
-void AssistedTeleop::vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
+void
+AssistedTeleop::vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
 {
-  speed_ = msg->linear.x;
+  speed_x = msg->linear.x;
+  speed_y = msg->linear.y;
   angular_vel_ = msg->angular.z;
   cmd_vel_->linear.x = msg->linear.x;
   cmd_vel_->angular.z = msg->angular.z;
+
+  costmap_ros_ = costmap_sub_->getCostmap();
+  // RCLCPP_INFO(logger_, "projection_time is %.2f", projection_time);
+  if (go)
+  {
+  if (updatePose()) {
+    if (!checkCollision()) {
+      moveRobot();
+      RCLCPP_WARN(logger_, "Collision approaching in %.2f seconds", col_time);
+    }
+  }
+}
 }
 
-bool AssistedTeleop::checkCollision()
+bool
+AssistedTeleop::checkCollision()
 {
+  const double dt = costmap_ros_->getResolution() / speed_x;
 
-  col_time = 0;
-  double dt = projection_time / cycle_frequency_; // projection time varies, should I static cast this as well
-  const int max_cycle_count = static_cast<int>(dt * cycle_frequency_ );// simulate_ahead_time_);
-  RCLCPP_INFO(logger_,"Checking collision with dt : %.2f and %d cycles",dt,max_cycle_count);
+  while (loopcount * dt < projection_time) {
+    col_time = loopcount * dt;
+    projectPose(speed_x, speed_y, angular_vel_, col_time);
 
-  for (int i=0; i<cycle_frequency_; ++i)
-  {
-    speed_ += (i * dt) * (cmd_vel_->linear.x / cycle_frequency_);
-    angular_vel_ += (i * dt) * (cmd_vel_->angular.z / cycle_frequency_);
-    projectPose(speed_, angular_vel_);
-    col_time = i * dt;
-    if (!collision_checker_->isCollisionFree(projected_pose))
-    {
-      // computeVelocity(col_time);
-      scaling_factor = col_time / projection_time;
-      return false;
+    if (col_time <= projection_time) {
+      if (!collision_checker_->isCollisionFree(projected_pose)) {
+        return false;
+      }
     }
-    speed_ = cmd_vel_->linear.x;
-    angular_vel_ = cmd_vel_->angular.z;
+    loopcount++;
+
+    if (col_time > projection_time) {
+      return true;
+    }
   }
   return true;
 }
 
-void AssistedTeleop::computeVelocity(double scaling_time)
-{
-  scaling_factor = scaling_time / projection_time;
-  cmd_vel_->linear.x *= scaling_factor;
-  cmd_vel_->angular.z *= scaling_factor;
-  vel_pub_->publish(std::move(cmd_vel_));
-
-}
-
-void AssistedTeleop::moveRobot()
+void
+AssistedTeleop::moveRobot()
 {
   auto cmd_vel = std::make_unique<geometry_msgs::msg::Twist>();
-  cmd_vel->linear.x = cmd_vel_->linear.x * scaling_factor;
-  cmd_vel->linear.y = 0.0;
-  cmd_vel->angular.z = cmd_vel_->angular.z * scaling_factor;
+  double mag = sqrt(
+    cmd_vel_->linear.x * cmd_vel_->linear.x +
+    cmd_vel_->linear.y * cmd_vel_->linear.y +
+    cmd_vel_->angular.z * cmd_vel_->angular.z);
+
+  if (mag != 0.0) {
+    cmd_vel->linear.x = cmd_vel_->linear.x / (col_time * mag);
+    cmd_vel->linear.y = cmd_vel_->linear.y / (col_time * mag);
+    cmd_vel->angular.z = cmd_vel_->angular.z / (col_time * mag);
+  }
 
   vel_pub_->publish(std::move(cmd_vel));
 }
 
-void AssistedTeleop::onCleanup()
+void
+AssistedTeleop::onCleanup()
 {
   vel_sub_.reset();
   RCLCPP_INFO(logger_, "Cleaning up velocity subscriber");
-
 }
 
 }  // namespace nav2_recoveries
