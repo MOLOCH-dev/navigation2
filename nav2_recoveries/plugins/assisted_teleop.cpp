@@ -95,37 +95,35 @@ AssistedTeleop::vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
   cmd_vel_->angular.z = msg->angular.z;
 
   costmap_ros_ = costmap_sub_->getCostmap();
-  // RCLCPP_INFO(logger_, "projection_time is %.2f", projection_time);
-  if (go)
-  {
-  if (updatePose()) {
-    if (!checkCollision()) {
-      moveRobot();
-      RCLCPP_WARN(logger_, "Collision approaching in %.2f seconds", col_time);
+  if (go && speed_x != 0) {
+    if (updatePose()) {
+      if (!checkCollision()) {
+        moveRobot();
+        RCLCPP_WARN(logger_, "Collision approaching in %.2f seconds", col_time);
+      }
     }
   }
-}
 }
 
 bool
 AssistedTeleop::checkCollision()
 {
-  int loopcount = 1;
+  RCLCPP_INFO(logger_, "costmap res : %.2f ", costmap_ros_->getResolution());
+
   const double dt = costmap_ros_->getResolution() / speed_x;
-  
-  while (true) {
+  RCLCPP_INFO(logger_, "dt is %.2f", dt);
+  loopcount = 1;
+  while (1) {
     col_time = loopcount * dt;
-    if (col_time > projection_time) {
-      break;
+    RCLCPP_INFO(logger_, "Col time is %.2f", col_time);
+
+    if (col_time >= projection_time) {
+      return true;
     }
     loopcount++;
-    projectPose(speed_x, speed_y, angular_vel_, col_time);
-
-    if (col_time != 0) {
-      if (!collision_checker_->isCollisionFree(projected_pose)) {
-        RCLCPP_INFO(logger_,"Not col free ");
-        return false;
-      }
+    projectPose(speed_x, speed_x, angular_vel_, col_time);
+    if (!collision_checker_->isCollisionFree(projected_pose)) {
+      return false;
     }
   }
   return true;
@@ -139,13 +137,13 @@ AssistedTeleop::moveRobot()
     cmd_vel_->linear.x * cmd_vel_->linear.x +
     /*cmd_vel_->linear.y * cmd_vel_->linear.y +*/
     cmd_vel_->angular.z * cmd_vel_->angular.z);
+  int scaling_factor = projection_time / col_time;
 
   if (mag != 0.0) {
-    cmd_vel->linear.x = cmd_vel_->linear.x / (col_time * mag);
-    cmd_vel->linear.y = cmd_vel_->linear.y; // / (col_time * mag);
-    cmd_vel->angular.z = cmd_vel_->angular.z / (col_time * mag);
+    cmd_vel->linear.x = cmd_vel_->linear.x / ( scaling_factor);
+    cmd_vel->linear.y = cmd_vel_->linear.y;
+    cmd_vel->angular.z = cmd_vel_->angular.z / ( scaling_factor);
   }
-
   vel_pub_->publish(std::move(cmd_vel));
 }
 
