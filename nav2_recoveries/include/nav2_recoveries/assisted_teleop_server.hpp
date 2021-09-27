@@ -34,13 +34,6 @@
 namespace nav2_recoveries
 {
 
-enum class Status : int8_t
-{
-  SUCCEEDED = 1,
-  FAILED = 2,
-  RUNNING = 3,
-};
-
 using namespace std::chrono_literals;  //NOLINT
 
 /**
@@ -66,12 +59,6 @@ public:
   virtual ~Recovery()
   {
   }
-
-  // Derived classes can override this method to catch the command and perform some checks
-  // before getting into the main loop. The method will only be called
-  // once and should return SUCCEEDED otherwise behavior will return FAILED.
-  virtual Status onRun(const std::shared_ptr<const typename ActionT::Goal> command) = 0;
-
 
   // an opportunity for derived classes to do something on configuration
   // if they chose
@@ -111,8 +98,6 @@ public:
       std::bind(&Recovery::execute, this));
 
     collision_checker_ = collision_checker;
-
-    vel_pub_ = node->template create_publisher<geometry_msgs::msg::Twist>("cmd_vel", 1);
 
     onConfigure();
   }
@@ -161,6 +146,9 @@ protected:
   std::string robot_base_frame_;
   double transform_tolerance_;
   bool go = false;
+  bool move = true;
+  double scaling_factor;
+  double speed_x = 0.0, speed_y = 0.0, angular_vel_ = 0.0;
 
   // Clock
   rclcpp::Clock steady_clock_{RCL_STEADY_TIME};
@@ -179,14 +167,6 @@ protected:
       RCLCPP_WARN(
         logger_,
         "Called while inactive, ignoring request.");
-      return;
-    }
-
-    if (onRun(action_server_->get_current_goal()) != Status::SUCCEEDED) {
-      RCLCPP_INFO(
-        logger_,
-        "Initial checks failed for %s", recovery_name_.c_str());
-      action_server_->terminate_current();
       return;
     }
 
@@ -236,7 +216,7 @@ protected:
         action_server_->terminate_current(result);
         return;
       }
-      // costmap_ros_ = costmap_sub_->getCostmap();
+
       auto current_point = std::chrono::steady_clock::now();
 
       auto time_left =
@@ -251,6 +231,7 @@ protected:
       // Enable recovery behavior if we haven't run out of time
       if (time_left > 0) {
         go = true;
+        moveRobot(scaling_factor, speed_x, speed_y, angular_vel_);
       } else {
         go = false;
         action_server_->succeeded_current(result);
@@ -259,7 +240,6 @@ protected:
           "%s completed successfully", recovery_name_.c_str());
         return;
       }
-      // loop_rate.sleep();
     }
   }
 
@@ -272,6 +252,21 @@ protected:
     cmd_vel->angular.z = 0.0;
 
     vel_pub_->publish(std::move(cmd_vel));
+  }
+
+  // Stop the robot with a scaled-down velocity
+  void
+  moveRobot(double & scaling_factor, double speed_x, double speed_y, double angular_vel_)
+  {
+    auto cmd_vel = std::make_unique<geometry_msgs::msg::Twist>();
+
+    cmd_vel->linear.x = speed_x / (scaling_factor);
+    cmd_vel->linear.y = speed_y;
+    cmd_vel->angular.z = angular_vel_ / (scaling_factor);
+
+    if (std::fabs(scaling_factor) >= 1 && move == true) {
+      vel_pub_->publish(std::move(cmd_vel));
+    }
   }
 };
 

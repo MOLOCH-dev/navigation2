@@ -41,13 +41,6 @@ public:
   AssistedTeleop();
   ~AssistedTeleop();
 
-  /**
-   * @brief Initialization to run behavior
-   * @param command Goal to execute
-   * @return Status of recovery
-   */
-  Status onRun(const std::shared_ptr<const AssistedTeleopAction::Goal> command) override;
-
   void onCleanup() override;
 
 protected:
@@ -77,27 +70,24 @@ protected:
   /**
    * @brief Check if pose is collision free
    */
-  bool checkCollision();
+  bool checkCollision(double & scaling_factor);
+
+  // /**
+  //  * @brief Move robot by specified velocity
+  //  */
+  // void moveRobot(double& scaling_factor);
 
   /**
-   * @brief Move robot by specified velocity
+   * @brief Configuration of recovery action
    */
-  void moveRobot();
+  void onConfigure() override;
 
-  double speed_x = 0.0;
-  double speed_y = 0.0;
-  double angular_vel_ = 0;
-  double projection_time = 1.0;
-  double num_samples_ = 10;
-  int loopcount = 1;
+  double projection_time_;
 
   geometry_msgs::msg::PoseStamped current_pose;
   geometry_msgs::msg::Pose2D projected_pose;
 
-  double col_time = 1.0;
-
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr vel_sub_;
-  geometry_msgs::msg::Twist::UniquePtr cmd_vel_ = std::make_unique<geometry_msgs::msg::Twist>();
   std::unique_ptr<nav2_costmap_2d::CostmapSubscriber> costmap_sub_;
   std::shared_ptr<nav2_costmap_2d::Costmap2D> costmap_ros_;
 };

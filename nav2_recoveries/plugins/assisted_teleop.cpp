@@ -33,12 +33,10 @@ AssistedTeleop::~AssistedTeleop()
 {
 }
 
-Status AssistedTeleop::onRun(const std::shared_ptr<const AssistedTeleopAction::Goal> command)
+void AssistedTeleop::onConfigure()
 {
   auto node = node_.lock();
   logger_ = node->get_logger();
-  assisted_teleop_end_ = std::chrono::steady_clock::now() +
-    rclcpp::Duration(command->time).to_chrono<std::chrono::nanoseconds>();
 
   vel_sub_ = node->create_subscription<geometry_msgs::msg::Twist>(
     "cmd_vel", rclcpp::SystemDefaultsQoS(),
@@ -46,10 +44,15 @@ Status AssistedTeleop::onRun(const std::shared_ptr<const AssistedTeleopAction::G
       &AssistedTeleop::vel_callback,
       this, std::placeholders::_1));
 
+  vel_pub_ = node->create_publisher<geometry_msgs::msg::Twist>("cmd_vel", 1);
+
   costmap_sub_ = std::make_unique<nav2_costmap_2d::CostmapSubscriber>(
     node_, "local_costmap/costmap_raw");
 
-  return Status::SUCCEEDED;
+  nav2_util::declare_parameter_if_not_declared(
+    node,
+    "projection_time", rclcpp::ParameterValue(3.0));
+  node->get_parameter("projection_time", projection_time_);
 }
 
 bool
@@ -62,12 +65,10 @@ AssistedTeleop::updatePose()
     RCLCPP_ERROR(logger_, "Current robot pose is not available.");
     return false;
   }
-
   projected_pose.x = current_pose.pose.position.x;
   projected_pose.y = current_pose.pose.position.y;
   projected_pose.theta = tf2::getYaw(
     current_pose.pose.orientation);
-
   return true;
 }
 
@@ -76,7 +77,7 @@ AssistedTeleop::projectPose(
   double speed_x, double speed_y,
   double angular_vel_, double projection_time)
 {
-  // Project Pose
+  // Project Pose by time increment
   projected_pose.x += projection_time * (
     speed_x * cos(projected_pose.theta));
   projected_pose.y += projection_time * (
@@ -91,60 +92,42 @@ AssistedTeleop::vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
   speed_x = msg->linear.x;
   speed_y = msg->linear.y;
   angular_vel_ = msg->angular.z;
-  cmd_vel_->linear.x = msg->linear.x;
-  cmd_vel_->angular.z = msg->angular.z;
 
+  scaling_factor = 1;
   costmap_ros_ = costmap_sub_->getCostmap();
   if (go && speed_x != 0) {
-    if (updatePose()) {
-      if (!checkCollision()) {
-        moveRobot();
-        RCLCPP_WARN(logger_, "Collision approaching in %.2f seconds", col_time);
-      }
+    if (!checkCollision(scaling_factor)) {
+      move = true;
+    } else {
+      move = false;
     }
   }
 }
 
 bool
-AssistedTeleop::checkCollision()
+AssistedTeleop::checkCollision(double & scaling_factor)
 {
-  RCLCPP_INFO(logger_, "costmap res : %.2f ", costmap_ros_->getResolution());
+  const double dt = costmap_ros_->getResolution() / std::fabs(speed_x);
+  int loopcount = 1;
 
-  const double dt = costmap_ros_->getResolution() / speed_x;
-  RCLCPP_INFO(logger_, "dt is %.2f", dt);
-  loopcount = 1;
-  while (1) {
-    col_time = loopcount * dt;
-    RCLCPP_INFO(logger_, "Col time is %.2f", col_time);
+  while (true) {
+    if (updatePose()) {
+      double time_to_collision = loopcount * dt;
+      if (time_to_collision >= projection_time_) {
+        break;
+      }
+      scaling_factor = projection_time_ / (time_to_collision);
+      loopcount++;
 
-    if (col_time >= projection_time) {
-      return true;
-    }
-    loopcount++;
-    projectPose(speed_x, speed_x, angular_vel_, col_time);
-    if (!collision_checker_->isCollisionFree(projected_pose)) {
-      return false;
+      projectPose(speed_x, speed_y, angular_vel_, time_to_collision);
+
+      if (!collision_checker_->isCollisionFree(projected_pose)) {
+        RCLCPP_WARN(logger_, "Collision approaching in %.2f seconds", time_to_collision);
+        return false;
+      }
     }
   }
   return true;
-}
-
-void
-AssistedTeleop::moveRobot()
-{
-  auto cmd_vel = std::make_unique<geometry_msgs::msg::Twist>();
-  double mag = sqrt(
-    cmd_vel_->linear.x * cmd_vel_->linear.x +
-    /*cmd_vel_->linear.y * cmd_vel_->linear.y +*/
-    cmd_vel_->angular.z * cmd_vel_->angular.z);
-  int scaling_factor = projection_time / col_time;
-
-  if (mag != 0.0) {
-    cmd_vel->linear.x = cmd_vel_->linear.x / ( scaling_factor);
-    cmd_vel->linear.y = cmd_vel_->linear.y;
-    cmd_vel->angular.z = cmd_vel_->angular.z / ( scaling_factor);
-  }
-  vel_pub_->publish(std::move(cmd_vel));
 }
 
 void
