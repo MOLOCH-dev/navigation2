@@ -146,8 +146,8 @@ protected:
   std::string robot_base_frame_;
   double transform_tolerance_;
   bool go = false;
-  bool move = true;
-  double scaling_factor;
+  bool move = false;
+  double scaling_factor = 1;
   double speed_x = 0.0, speed_y = 0.0, angular_vel_ = 0.0;
 
   // Clock
@@ -241,6 +241,8 @@ protected:
         return;
       }
     }
+
+    loop_rate.sleep();
   }
 
   // Stop the robot with a commanded velocity
@@ -264,7 +266,7 @@ protected:
     cmd_vel->linear.y = speed_y;
     cmd_vel->angular.z = angular_vel_ / (scaling_factor);
 
-    if (std::fabs(scaling_factor) >= 1 && move == true) {
+    if (std::fabs(scaling_factor) > 1 && move == true) {
       vel_pub_->publish(std::move(cmd_vel));
     }
   }

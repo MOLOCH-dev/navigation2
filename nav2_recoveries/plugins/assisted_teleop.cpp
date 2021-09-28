@@ -51,7 +51,7 @@ void AssistedTeleop::onConfigure()
 
   nav2_util::declare_parameter_if_not_declared(
     node,
-    "projection_time", rclcpp::ParameterValue(3.0));
+    "projection_time", rclcpp::ParameterValue(1.0));
   node->get_parameter("projection_time", projection_time_);
 }
 
@@ -93,13 +93,11 @@ AssistedTeleop::vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
   speed_y = msg->linear.y;
   angular_vel_ = msg->angular.z;
 
-  scaling_factor = 1;
   costmap_ros_ = costmap_sub_->getCostmap();
   if (go && speed_x != 0) {
     if (!checkCollision(scaling_factor)) {
+      RCLCPP_INFO(logger_, "Reducing velocity by %.2f", scaling_factor);
       move = true;
-    } else {
-      move = false;
     }
   }
 }
@@ -114,6 +112,7 @@ AssistedTeleop::checkCollision(double & scaling_factor)
     if (updatePose()) {
       double time_to_collision = loopcount * dt;
       if (time_to_collision >= projection_time_) {
+        scaling_factor = 1;
         break;
       }
       scaling_factor = projection_time_ / (time_to_collision);
