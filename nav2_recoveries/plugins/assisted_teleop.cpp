@@ -16,27 +16,34 @@
 #include <chrono>
 #include <memory>
 #include <utility>
+#include <string>
 
 #include "assisted_teleop.hpp"
+#include "nav2_msgs/action/assisted_teleop.hpp"
 #include "nav2_util/node_utils.hpp"
 
 namespace nav2_recoveries
 {
 
-AssistedTeleop::AssistedTeleop()
-: Recovery<AssistedTeleopAction>(),
-  feedback_(std::make_shared<AssistedTeleopAction::Feedback>())
-{
-}
-
-AssistedTeleop::~AssistedTeleop()
-{
-}
-
 void AssistedTeleop::onConfigure()
 {
   auto node = node_.lock();
   logger_ = node->get_logger();
+
+  nav2_util::declare_parameter_if_not_declared(
+    node,
+    "projection_time", rclcpp::ParameterValue(1.0));
+  node->get_parameter("projection_time", projection_time_);
+
+  nav2_util::declare_parameter_if_not_declared(
+    node,
+    "linear_velocity_threshold_", rclcpp::ParameterValue(0.06));
+  node->get_parameter("linear_velocity_threshold_", linear_velocity_threshold_);
+
+  nav2_util::declare_parameter_if_not_declared(
+    node,
+    "cmd_vel_topic", rclcpp::ParameterValue(std::string("cmd_vel")));
+  node->get_parameter("cmd_vel_topic", cmd_vel_topic_);
 
   vel_sub_ = node->create_subscription<geometry_msgs::msg::Twist>(
     "cmd_vel", rclcpp::SystemDefaultsQoS(),
@@ -44,15 +51,23 @@ void AssistedTeleop::onConfigure()
       &AssistedTeleop::vel_callback,
       this, std::placeholders::_1));
 
-  vel_pub_ = node->create_publisher<geometry_msgs::msg::Twist>("cmd_vel", 1);
+  vel_pub_ = node->create_publisher<geometry_msgs::msg::Twist>(cmd_vel_topic_, 1);
 
   costmap_sub_ = std::make_unique<nav2_costmap_2d::CostmapSubscriber>(
     node_, "local_costmap/costmap_raw");
+}
 
-  nav2_util::declare_parameter_if_not_declared(
-    node,
-    "projection_time", rclcpp::ParameterValue(1.0));
-  node->get_parameter("projection_time", projection_time_);
+void
+AssistedTeleop::vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
+{
+  speed_x = msg->linear.x;
+  speed_y = msg->linear.y;
+  angular_vel_ = msg->angular.z;
+  if (go) {
+    if (!checkCollision()) {
+      moveRobot();
+    }
+  }
 }
 
 bool
@@ -86,26 +101,11 @@ AssistedTeleop::projectPose(
     angular_vel_;
 }
 
-void
-AssistedTeleop::vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
-{
-  speed_x = msg->linear.x;
-  speed_y = msg->linear.y;
-  angular_vel_ = msg->angular.z;
-
-  costmap_ros_ = costmap_sub_->getCostmap();
-  if (go && speed_x != 0) {
-    if (!checkCollision(scaling_factor)) {
-      RCLCPP_INFO(logger_, "Reducing velocity by %.2f", scaling_factor);
-      move = true;
-    }
-  }
-}
-
 bool
-AssistedTeleop::checkCollision(double & scaling_factor)
+AssistedTeleop::checkCollision()
 {
-  const double dt = costmap_ros_->getResolution() / std::fabs(speed_x);
+  const double dt =
+    (speed_x != 0) ? (costmap_ros_->getResolution() / std::fabs(speed_x)) : projection_time_;
   int loopcount = 1;
 
   while (true) {
@@ -129,11 +129,22 @@ AssistedTeleop::checkCollision(double & scaling_factor)
   return true;
 }
 
+// Stop the robot with a scaled-down velocity
 void
-AssistedTeleop::onCleanup()
+AssistedTeleop::moveRobot()
 {
-  vel_sub_.reset();
-  RCLCPP_INFO(logger_, "Cleaning up velocity subscriber");
+  RCLCPP_INFO(logger_, "scaling_factor is %.2f", scaling_factor);
+  auto cmd_vel = std::make_unique<geometry_msgs::msg::Twist>();
+
+  cmd_vel->linear.x = speed_x / scaling_factor;
+  cmd_vel->linear.y = speed_y;
+  cmd_vel->angular.z = angular_vel_ / scaling_factor;
+
+  if (cmd_vel->linear.x < linear_velocity_threshold_) {
+    stopRobot();
+  }
+
+  vel_pub_->publish(std::move(cmd_vel));
 }
 
 }  // namespace nav2_recoveries
