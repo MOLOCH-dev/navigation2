@@ -59,74 +59,22 @@ public:
   {
   }
 
-  ~AssistedTeleop()
-  {
-  }
+  ~AssistedTeleop() = default;
 
-  // Configuration of Assisted Teleop Action
-  void onConfigure();
-
-  // Cleaning up subscribers
-  void onCleanup()
-  {
-  }
-
-  // configure the server on lifecycle setup
+  // configure the server and Assisted Teleop Action on lifecycle setup
   void configure(
     const rclcpp_lifecycle::LifecycleNode::WeakPtr & parent,
     const std::string & name, std::shared_ptr<tf2_ros::Buffer> tf,
-    std::shared_ptr<nav2_costmap_2d::CostmapTopicCollisionChecker> collision_checker) override
-  {
-    node_ = parent;
-    auto node = node_.lock();
-
-    logger_ = node->get_logger();
-
-    RCLCPP_INFO(logger_, "Configuring %s", name.c_str());
-
-    recovery_name_ = name;
-    tf_ = tf;
-
-    node->get_parameter("cycle_frequency", cycle_frequency_);
-    node->get_parameter("global_frame", global_frame_);
-    node->get_parameter("robot_base_frame", robot_base_frame_);
-    node->get_parameter("transform_tolerance", transform_tolerance_);
-
-    action_server_ = std::make_shared<ActionServer>(
-      node, recovery_name_,
-      std::bind(&AssistedTeleop::execute, this));
-
-    collision_checker_ = collision_checker;
-
-    onConfigure();
-  }
+    std::shared_ptr<nav2_costmap_2d::CostmapTopicCollisionChecker> collision_checker) override;
 
   // Cleanup server on lifecycle transition
-  void cleanup() override
-  {
-    action_server_.reset();
-    vel_pub_.reset();
-    vel_sub_.reset();
-    onCleanup();
-  }
+  void cleanup() override;
 
   // Activate server on lifecycle transition
-  void activate() override
-  {
-    RCLCPP_INFO(logger_, "Activating %s", recovery_name_.c_str());
-
-    vel_pub_->on_activate();
-    action_server_->activate();
-    enabled_ = true;
-  }
+  void activate() override;
 
   // Deactivate server on lifecycle transition
-  void deactivate() override
-  {
-    vel_pub_->on_deactivate();
-    action_server_->deactivate();
-    enabled_ = false;
-  }
+  void deactivate() override;
 
 protected:
   rclcpp_lifecycle::LifecycleNode::WeakPtr node_;
@@ -143,13 +91,14 @@ protected:
 
   // User defined parameters
   double projection_time_;
-  double linear_velocity_threshold_;
   double cycle_frequency_;
+  double linear_velocity_threshold_;
   double enabled_;
   double transform_tolerance_;
   std::string global_frame_;
   std::string robot_base_frame_;
   std::string cmd_vel_topic_;
+  std::string input_vel_topic_;
 
   geometry_msgs::msg::PoseStamped current_pose;
   geometry_msgs::msg::Pose2D projected_pose;
@@ -198,103 +147,15 @@ protected:
    */
   void moveRobot();
 
-  // Main execution callbacks for the action server implementation waiting for timeout
-  // and enabling the recovery's specific behaviour in the meantime
-  void execute()
-  {
-    RCLCPP_INFO(logger_, "Attempting %s", recovery_name_.c_str());
+  /**
+   * @brief Main execution callbacks for the action server, enable's recovery's specific behavior as it waits for timeout
+   */
+  void execute();
 
-    if (!enabled_) {
-      RCLCPP_WARN(
-        logger_,
-        "Called while inactive, ignoring request.");
-      return;
-    }
-
-    // Log a message every second
-    {
-      auto node = node_.lock();
-      if (!node) {
-        throw std::runtime_error{"Failed to lock node"};
-      }
-
-      auto timer = node->create_wall_timer(
-        1s,
-        [&]()
-        {RCLCPP_INFO(logger_, "%s running...", recovery_name_.c_str());});
-    }
-
-    auto start_time = steady_clock_.now();
-
-    // Initialize the ActionT goal, feedback and result
-    auto at_goal = action_server_->get_current_goal();
-    auto feedback_ = std::make_shared<AssistedTeleopAction::Feedback>();
-    auto result = std::make_shared<AssistedTeleopAction::Result>();
-
-    rclcpp::WallRate loop_rate(cycle_frequency_);
-
-    assisted_teleop_end_ = std::chrono::steady_clock::now() +
-      rclcpp::Duration(at_goal->time).to_chrono<std::chrono::nanoseconds>();
-
-    while (rclcpp::ok()) {
-      if (action_server_->is_cancel_requested()) {
-        RCLCPP_INFO(logger_, "Canceling %s", recovery_name_.c_str());
-        go = false;
-        stopRobot();
-        result->total_elapsed_time = steady_clock_.now() - start_time;
-        action_server_->terminate_all(result);
-        return;
-      }
-
-      if (action_server_->is_preempt_requested()) {
-        RCLCPP_ERROR(
-          logger_, "Received a preemption request for %s,"
-          " however feature is currently not implemented. Aborting and stopping.",
-          recovery_name_.c_str());
-        stopRobot();
-        result->total_elapsed_time = steady_clock_.now() - start_time;
-        action_server_->terminate_current(result);
-        return;
-      }
-
-      auto current_point = std::chrono::steady_clock::now();
-
-      auto time_left =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-        assisted_teleop_end_ - current_point).count();
-
-      feedback_->time_left = rclcpp::Duration(
-        rclcpp::Duration::from_nanoseconds(time_left));
-
-      action_server_->publish_feedback(feedback_);
-
-      // Enable recovery behavior if we haven't run out of time
-      if (time_left > 0) {
-        go = true;
-        costmap_ros_ = costmap_sub_->getCostmap();
-      } else {
-        go = false;
-        action_server_->succeeded_current(result);
-        RCLCPP_INFO(
-          logger_,
-          "%s completed successfully", recovery_name_.c_str());
-        return;
-      }
-    }
-
-    // loop_rate.sleep();
-  }
-
-  // Stop the robot with a commanded velocity
-  void stopRobot()
-  {
-    auto cmd_vel = std::make_unique<geometry_msgs::msg::Twist>();
-    cmd_vel->linear.x = 0.0;
-    cmd_vel->linear.y = 0.0;
-    cmd_vel->angular.z = 0.0;
-
-    vel_pub_->publish(std::move(cmd_vel));
-  }
+  /**
+   * @brief Stops the robot with a commanded velocity
+   */
+  void stopRobot();
 };
 
 }  // namespace nav2_recoveries
