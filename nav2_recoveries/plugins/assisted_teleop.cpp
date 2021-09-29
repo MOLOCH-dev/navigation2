@@ -42,7 +42,7 @@ void AssistedTeleop::onConfigure()
 
   nav2_util::declare_parameter_if_not_declared(
     node,
-    "cmd_vel_topic", rclcpp::ParameterValue(std::string("cmd_vel")));
+    "cmd_vel_topic", rclcpp::ParameterValue(std::string("cmd_vel_topic")));
   node->get_parameter("cmd_vel_topic", cmd_vel_topic_);
 
   vel_sub_ = node->create_subscription<geometry_msgs::msg::Twist>(
