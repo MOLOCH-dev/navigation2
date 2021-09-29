@@ -152,5 +152,5 @@ ament_export_libraries(${library_name}
   nav2_wait_recovery
   nav2_assisted_teleop_recovery
 )
-
+ament_export_dependencies(${dependencies})
 ament_package()
